@@ -27,6 +27,7 @@ app.get("/", (req, res) => {
 const run = async () => {
 	try {
 		// await client.connect();
+		const coursesColl = client.db("BrainboxDB").collection("courses");
 		const usersColl = client.db("BrainboxDB").collection("users");
 
 		//
@@ -60,6 +61,47 @@ const run = async () => {
 			const update = { $set: req.body };
 			const upsert = { upsert: true };
 			const result = await usersColl.updateOne({ email }, update, upsert);
+			res.send(result);
+		});
+
+		//
+
+		app.get("/courses", async (req, res) => {
+			const result = await coursesColl.find().toArray();
+			res.send(result);
+		});
+
+		app.get("/courses/:id", async (req, res) => {
+			try {
+				const _id = new ObjectId(req.params.id);
+				const result = await coursesColl.findOne({ _id });
+				res.send(result);
+			} catch (error) {
+				res.send(null);
+			}
+		});
+
+		app.get("/my-courses/:uid", verifyToken, async (req, res) => {
+			const { uid } = req.params;
+			const result = await coursesColl.find({ owner: uid }).toArray();
+			res.send(result);
+		});
+
+		app.post("/courses", verifyToken, async (req, res) => {
+			const result = await coursesColl.insertOne(req.body);
+			res.send(result);
+		});
+
+		app.patch("/courses/:id", verifyToken, async (req, res) => {
+			const _id = new ObjectId(req.params.id);
+			const update = { $set: req.body };
+			const result = await coursesColl.updateOne({ _id }, update);
+			res.send(result);
+		});
+
+		app.delete("/courses/:id", verifyToken, async (req, res) => {
+			const _id = new ObjectId(req.params.id);
+			const result = await coursesColl.deleteOne({ _id });
 			res.send(result);
 		});
 
