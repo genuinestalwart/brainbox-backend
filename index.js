@@ -6,7 +6,7 @@ require("dotenv").config();
 const app = express();
 const port = process.env.PORT || 5000;
 const secret = process.env.ACCESS_TOKEN_SECRET;
-// const stripe = require("stripe")(process.env.SECRET_KEY);
+const stripe = require("stripe")(process.env.SECRET_KEY);
 app.use(cors());
 app.use(express.json());
 
@@ -28,6 +28,7 @@ const run = async () => {
 	try {
 		// await client.connect();
 		const coursesColl = client.db("BrainboxDB").collection("courses");
+		const paymentsColl = client.db("BrainboxDB").collection("payments");
 		const usersColl = client.db("BrainboxDB").collection("users");
 
 		//
@@ -71,11 +72,16 @@ const run = async () => {
 			res.send(result);
 		});
 
-		app.get("/courses/:id", async (req, res) => {
+		app.get("/courses/:id/:uid", async (req, res) => {
 			try {
 				const _id = new ObjectId(req.params.id);
-				const result = await coursesColl.findOne({ _id });
-				res.send(result);
+				const { id: courseId, uid } = req.params;
+				const course = await coursesColl.findOne({ _id });
+				const alreadyPaid = !!(await paymentsColl.findOne({
+					courseId,
+					uid,
+				}));
+				res.send({ course, alreadyPaid });
 			} catch (error) {
 				res.send(null);
 			}
@@ -84,6 +90,24 @@ const run = async () => {
 		app.get("/my-courses/:uid", verifyToken, async (req, res) => {
 			const { uid } = req.params;
 			const result = await coursesColl.find({ owner: uid }).toArray();
+			res.send(result);
+		});
+
+		app.get("/enrolled-courses/:uid", verifyToken, async (req, res) => {
+			const { uid } = req.params;
+			const payments = await paymentsColl.find({ uid }).toArray();
+			const courseIDs = payments.map((item) => item.courseId);
+			const result = await coursesColl
+				.aggregate([
+					{
+						$match: {
+							_id: {
+								$in: courseIDs.map((id) => new ObjectId(id)),
+							},
+						},
+					},
+				])
+				.toArray();
 			res.send(result);
 		});
 
@@ -107,12 +131,6 @@ const run = async () => {
 
 		//
 
-		app.get("/payments/:email", verifyToken, async (req, res) => {
-			const { email } = req.params;
-			const result = await paymentsColl.find({ email }).toArray();
-			res.send(result);
-		});
-
 		app.post("/create-payment-intent", verifyToken, async (req, res) => {
 			const amount = parseInt(req.body.price * 100);
 			const payment_method_types = ["card"];
@@ -123,16 +141,6 @@ const run = async () => {
 
 		app.post("/payments", verifyToken, async (req, res) => {
 			const result = await paymentsColl.insertOne(req.body);
-			const objectIDs = req.body.dataIDs.map((id) => new ObjectId(id));
-			const filter = { _id: { $in: objectIDs } };
-
-			if (req.body.category === "Food Order") {
-				await cartsColl.deleteMany(filter);
-			} else if (req.body.category === "Table Booking") {
-				const update = { $set: { paid: true } };
-				await bookingsColl.updateMany(filter, update);
-			}
-
 			res.send(result);
 		});
 	} finally {
